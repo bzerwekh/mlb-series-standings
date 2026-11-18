@@ -2,6 +2,11 @@
 
 Standings where each series is one result, decided by total runs across its games.
 
+Live page: https://bzerwekh.github.io/mlb-series-standings/
+
+The page is rebuilt and published by `.github/workflows/pages.yml` on every push to
+`main`, or on demand from the Actions tab (Run workflow, with a season input).
+
 ```
 python3 build.py              # build from cached data in data/
 python3 build.py --refresh    # re-download from statsapi.mlb.com first
