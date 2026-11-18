@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MLB Series Standings</title>
+<style>
+  :root { --navy:#134a6e; --line:#d4d8dd; --zebra:#f3f4f6; --muted:#5c6670; --win:#1d6b34; --loss:#9b1c1c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.4 -apple-system, "Helvetica Neue", Arial, sans-serif; background:#eceef1; color:#1f2328; }
+  .wrap { max-width:1180px; margin:0 auto; padding:20px; }
+  header { background:#fff; padding:18px 24px; margin-bottom:12px; }
+  h1 { margin:0 0 4px; font-size:24px; color:#444; }
+  .sub { color:var(--muted); font-size:13px; }
+  nav { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px; }
+  nav button { border:1px solid var(--line); background:#fff; color:#1f2328; padding:7px 12px; font:inherit; cursor:pointer; border-radius:3px; }
+  nav button.on { background:var(--navy); color:#fff; border-color:var(--navy); }
+  nav .gap { width:12px; }
+  .panel { background:#fff; border:1px solid #b8c0c8; }
+  .panel h2 { margin:0; background:var(--navy); color:#fff; font-size:16px; padding:9px 14px; }
+  table { border-collapse:collapse; width:100%; }
+  th { background:#e4e6e9; color:#444; font-size:12px; text-transform:uppercase; padding:7px 8px; border-right:1px solid #fff; }
+  td { padding:7px 8px; text-align:center; border-top:1px solid var(--line); white-space:nowrap; }
+  tbody tr:nth-child(even) td { background:var(--zebra); }
+  td.team, th.team { text-align:left; font-weight:600; }
+  td.team .full { font-weight:400; color:var(--muted); margin-left:6px; }
+  .pos { color:var(--win); } .neg { color:var(--loss); }
+  .grid td.cell { cursor:pointer; }
+  .grid td.cell:hover, .grid td.sel { background:#fff3c4 !important; outline:1px solid #d8b400; }
+  .grid td.self { color:#999; }
+  .grid th { line-height:1.15; }
+  .grid td.lg { border-left:2px solid #b8c0c8; font-weight:600; }
+  #detail { margin-top:12px; }
+  #detail .hint { padding:14px; color:var(--muted); }
+  .series { border-top:1px solid var(--line); padding:10px 14px; display:grid; grid-template-columns:150px 70px 120px 1fr; gap:10px; align-items:baseline; }
+  .series .res { font-weight:700; }
+  .res.W { color:var(--win); } .res.L { color:var(--loss); } .res.T { color:#6b5900; }
+  .games span { display:inline-block; margin-right:12px; }
+  .tag { font-size:11px; padding:1px 5px; border-radius:3px; background:#e4e6e9; color:#333; margin-left:4px; }
+  .tag.nb { background:#fde2e2; color:var(--loss); }
+  .notes { padding:12px 16px; color:#333; }
+  .notes li { margin:4px 0; }
+  .legend { font-size:12px; color:var(--muted); padding:8px 14px; border-top:1px solid var(--line); }
+  @media print { nav { display:none; } body { background:#fff; } .grid td.cell { cursor:auto; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MLB Series Standings &ndash; <span id="season"></span></h1>
+    <div class="sub">A series is won or lost on total runs across all of its games. Tied totals are a tie, counted as half a win and half a loss.</div>
+  </header>
+  <nav id="tabs"></nav>
+  <div id="view"></div>
+  <div id="detail"></div>
+</div>
+<script>
+const D = __DATA__;
+const T = D.teams;
+const fmtPct = p => p.toFixed(3).replace(/^0/, "");
+const fmtSB = v => v === 0 ? "&ndash;" : (Number.isInteger(v) ? String(v) : v.toFixed(1));
+const rec = (w, l, t) => t ? `${w}-${l}-${t}` : `${w}-${l}`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+const shortDiv = n => n.replace("American League", "AL").replace("National League", "NL");
+
+document.getElementById("season").textContent = D.season;
+
+const tabs = [...D.division_order.map(n => ({id: n, label: shortDiv(n)})),
+  {gap: true}, {id: "AL grid", label: "AL Grid"}, {id: "NL grid", label: "NL Grid"},
+  {gap: true}, {id: "rules", label: "Rules"}];
+
+function nav(active) {
+  document.getElementById("tabs").innerHTML = tabs.map(t => t.gap ? '<span class="gap"></span>' :
+    `<button data-id="${esc(t.id)}" class="${t.id === active ? "on" : ""}">${esc(t.label)}</button>`).join("");
+  document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => show(b.dataset.id));
+}
+
+function show(id) {
+  nav(id);
+  location.hash = encodeURIComponent(id);
+  document.getElementById("detail").innerHTML = "";
+  if (id === "rules") return rules();
+  if (id.endsWith("grid")) return grid(id.startsWith("AL") ? "American League" : "National League");
+  division(id);
+}
+
+function division(name) {
+  const rows = D.divisions[name];
+  const sign = n => n > 0 ? `<span class="pos">+${n}</span>` : n < 0 ? `<span class="neg">${n}</span>` : "0";
+  document.getElementById("view").innerHTML = `<div class="panel"><h2>${esc(name)}</h2>
+  <table><thead><tr><th class="team">Team</th><th>W</th><th>L</th><th>T</th><th>Pct</th><th>SB</th>
+  <th>RF</th><th>RA</th><th>Diff</th><th title="Series losses where this team won a home game without batting in the 9th">No-Bat L</th><th>On Hold</th></tr></thead>
+  <tbody>${rows.map(r => `<tr><td class="team">${esc(r.abbr)}<span class="full">${esc(r.name)}</span></td>
+    <td>${r.W}</td><td>${r.L}</td><td>${r.T}</td><td>${fmtPct(r.Pct)}</td><td>${fmtSB(r.SB)}</td>
+    <td>${r.RF}</td><td>${r.RA}</td><td>${sign(r.Diff)}</td><td>${r.NB}</td><td>${r.HOLD}</td></tr>`).join("")}</tbody></table>
+  <div class="legend">SB = series back from the division leader. RF / RA = aggregate runs for and against.
+  No-Bat L = series lost on aggregate where the team won at least one home game without batting in the bottom of the 9th.
+  Sorted by Pct, then head-to-head series record among tied teams, then run differential.</div></div>`;
+}
+
+function seriesFor(a, filter) {
+  return D.series.filter(s => (s.home == a || s.away == a) && filter(s.home == a ? s.away : s.home))
+    .sort((x, y) => x.start.localeCompare(y.start));
+}
+
+function grid(league) {
+  const other = league.startsWith("American") ? "NL" : "AL";
+  const ids = Object.keys(T).filter(id => T[id].league === league)
+    .sort((a, b) => T[a].abbr.localeCompare(T[b].abbr));
+  const cell = (a, b) => {
+    const r = D.h2h[`${a}-${b}`];
+    return r ? rec(r.W, r.L, r.T) : "0-0";
+  };
+  const vsOther = a => {
+    let w = 0, l = 0, t = 0;
+    for (const id in T) if (T[id].league !== league) {
+      const r = D.h2h[`${a}-${id}`]; if (r) { w += r.W; l += r.L; t += r.T; }
+    }
+    return rec(w, l, t);
+  };
+  document.getElementById("view").innerHTML = `<div class="panel grid"><h2>${esc(league)} Series Grid</h2>
+  <table><thead><tr><th class="team">Teams</th>${ids.map(b => `<th>vs.<br>${esc(T[b].abbr)}</th>`).join("")}<th>vs.<br>${other}</th></tr></thead>
+  <tbody>${ids.map(a => `<tr><td class="team">${esc(T[a].abbr)}</td>${ids.map(b => a === b ? '<td class="self">--</td>' :
+    `<td class="cell" data-a="${a}" data-b="${b}">${cell(a, b)}</td>`).join("")}
+    <td class="cell lg" data-a="${a}" data-b="${other}">${vsOther(a)}</td></tr>`).join("")}</tbody></table>
+  <div class="legend">Each cell is the row team's series record (W-L, with ties added when there are any). Click a cell to see each series.</div></div>`;
+  document.getElementById("detail").innerHTML = '<div class="panel"><div class="hint">Click a cell to list its series.</div></div>';
+  document.querySelectorAll(".grid td.cell").forEach(td => td.onclick = () => {
+    document.querySelectorAll(".grid td.sel").forEach(x => x.classList.remove("sel"));
+    td.classList.add("sel");
+    const a = td.dataset.a, b = td.dataset.b;
+    const list = (b === "AL" || b === "NL") ? seriesFor(a, o => T[o].league !== league) : seriesFor(a, o => o == b);
+    detail(a, b, list);
+  });
+}
+
+function detail(a, b, list) {
+  const title = (b === "AL" || b === "NL") ? `${T[a].abbr} vs. ${b}` : `${T[a].abbr} vs. ${T[b].abbr}`;
+  const rows = list.map(s => {
+    const home = s.home == a, opp = home ? s.away : s.home;
+    const mine = home ? s.hr : s.ar, theirs = home ? s.ar : s.hr;
+    const res = s.on_hold ? "Hold" : s.winner == a ? "W" : s.loser == a ? "L" : "T";
+    const games = s.games.map(g => {
+      const m = home ? g.hr : g.ar, o = home ? g.ar : g.hr;
+      const tags = (g.makeup && g.date !== g.orig ? `<span class="tag" title="Makeup of ${g.orig}">makeup</span>` : "")
+        + (g.no_bat ? '<span class="tag" title="Home team won without batting in the bottom of the 9th">no bot 9th</span>' : "")
+        + (g.state === "Completed Early" ? '<span class="tag">shortened</span>' : "");
+      return `<span>${g.date.slice(5)}: ${m}-${o}${tags}</span>`;
+    }).join("");
+    const dates = s.start === s.end ? s.start : `${s.start} to ${s.end.slice(5)}`;
+    return `<div class="series"><div>${dates}</div><div>${home ? "vs." : "@"} ${esc(T[opp].abbr)}</div>
+      <div><span class="res ${res}">${res}</span> ${mine}-${theirs}${s.no_bat_loss && s.loser == a ? '<span class="tag nb">no-bat L</span>' : ""}</div>
+      <div class="games">${games}</div></div>`;
+  }).join("");
+  document.getElementById("detail").innerHTML = `<div class="panel"><h2>${esc(title)} &ndash; ${list.length} series</h2>
+    ${rows || '<div class="hint">No series.</div>'}
+    <div class="legend">Scores are from ${esc(T[a].abbr)}'s side. Dates are when the series was scheduled; a makeup game shows the date it was actually played.</div></div>`;
+}
+
+function rules() {
+  const s = D.stats;
+  document.getElementById("view").innerHTML = `<div class="panel"><h2>Rules</h2><ul class="notes">
+    <li>A series is the consecutive games two teams play against each other at the same ballpark before either faces a new opponent.</li>
+    <li>Total runs across the series decide it. More runs is a win, fewer is a loss, equal is a tie. There is no run cap.</li>
+    <li>Pct = (W + &frac12;T) &divide; (W + L + T), the NFL method.</li>
+    <li>Postponed games made up later count toward the series they were originally scheduled in. Until the makeup is played, the series is on hold and not in anyone's record.</li>
+    <li>Cancelled games are dropped. Rain-shortened games count with their final score.</li>
+    <li>No-Bat L flags a series loss in which the losing team won a home game without batting in the bottom of the 9th, at any margin.</li>
+    <li>${D.season} regular season: ${s.games} games, ${s.series} series, ${s.ties} tied series, ${s.flagged} flagged No-Bat losses, ${s.makeups_detached} makeup games played on a later date, ${s.on_hold} series on hold.</li>
+    <li>Data: statsapi.mlb.com schedule with line scores.</li></ul></div>`;
+}
+
+const start = decodeURIComponent(location.hash.slice(1));
+show(tabs.some(t => t.id === start) ? start : D.division_order[0]);
+</script>
+</body>
+</html>

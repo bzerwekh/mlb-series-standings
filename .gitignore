@@ -1,0 +1,8 @@
+# Cached API responses (rebuild with: python3 build.py --refresh)
+data/
+
+# Generated page (rebuild with: python3 build.py)
+standings.html
+
+__pycache__/
+.DS_Store
